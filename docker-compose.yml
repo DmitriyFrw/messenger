@@ -1,0 +1,17 @@
+services:
+  api:
+    build: .
+    image: messenger-api:latest
+    container_name: messenger-api
+    ports:
+      - "8000:8000"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      DATABASE_URL: sqlite:////data/messenger.db
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
+    volumes:
+      - messenger_data:/data
+    restart: unless-stopped
+
+volumes:
+  messenger_data:

@@ -1,3 +1,75 @@
+# Messenger
+
+Мессенджер с бэкендом (**FastAPI**) и кроссплатформенным клиентом (**Flutter**: iOS, macOS, Android, Windows).
+
+| Часть | Папка | Стек |
+|-------|-------|------|
+| API | `app/` | FastAPI, SQLite, WebSocket |
+| Клиент | `client/` | Flutter, sqflite, Provider |
+
+## Быстрый старт
+
+> Все команды ниже — из каталога **`messenger/`** (не из родительской `empty-window/`).
+
+**1. Бэкенд**
+
+```bash
+cd messenger
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**2. Клиент**
+
+```bash
+cd client && ./setup.sh
+flutter run -d macos   # или android / ios / windows
+```
+
+Подробнее о клиенте: [client/README.md](client/README.md)
+
+## Docker
+
+Команды нужно выполнять **из папки `messenger`** (где лежит `docker-compose.yml`):
+
+```bash
+cd messenger
+docker compose up -d --build
+```
+
+Если открыт корень workspace `empty-window`, можно так:
+
+```bash
+cd /path/to/empty-window
+docker compose up -d --build
+```
+
+Или явно указать файл:
+
+```bash
+docker compose -f messenger/docker-compose.yml up -d --build
+```
+
+Только образ (из `messenger/`):
+
+```bash
+cd messenger
+docker build -t messenger-api:latest .
+docker run -d -p 8000:8000 \
+  -e SECRET_KEY=your-secret-key \
+  -v messenger_data:/data \
+  messenger-api:latest
+```
+
+API: http://localhost:8000/docs
+
+В клиенте укажите адрес сервера `http://127.0.0.1:8000` (или IP хоста с физического устройства).
+
+Остановка: `docker compose down` (данные SQLite сохраняются в volume `messenger_data`).
+
+---
+
 # Messenger API
 
 Бэкенд мессенджера на **FastAPI** + **SQLite**: регистрация/логин, отображаемое имя, время отправки, статусы сообщений и API для синхронизации истории на устройстве клиента.
