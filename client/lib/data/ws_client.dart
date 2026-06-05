@@ -15,6 +15,8 @@ class WsClient {
   WsEventHandler? onEvent;
   void Function(bool connected)? onConnectionChanged;
 
+  bool get connected => _channel != null;
+
   Future<void> connect(String token) async {
     await disconnect();
     _token = token;

@@ -25,6 +25,8 @@ class MessengerRepository {
   AuthSession? session;
   final List<void Function()> _listeners = [];
 
+  bool get wsConnected => ws.connected;
+
   void addListener(void Function() listener) => _listeners.add(listener);
   void removeListener(void Function() listener) => _listeners.remove(listener);
   void notify() {
@@ -39,7 +41,9 @@ class MessengerRepository {
     final ws = WsClient();
     final repo = MessengerRepository._(api: api, db: db, ws: ws);
     ws.onEvent = repo._handleWsEvent;
-    ws.onConnectionChanged = (_) => repo.notify();
+    ws.onConnectionChanged = (connected) {
+      repo.notify();
+    };
     await repo.restoreSession();
     return repo;
   }

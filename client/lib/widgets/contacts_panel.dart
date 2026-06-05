@@ -4,16 +4,16 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/messenger_state.dart';
 import '../theme/dialog_colors.dart';
-import '../widgets/geometric_avatar.dart';
+import 'geometric_avatar.dart';
 
-class NewChatScreen extends StatefulWidget {
-  const NewChatScreen({super.key});
+class ContactsPanel extends StatefulWidget {
+  const ContactsPanel({super.key});
 
   @override
-  State<NewChatScreen> createState() => _NewChatScreenState();
+  State<ContactsPanel> createState() => _ContactsPanelState();
 }
 
-class _NewChatScreenState extends State<NewChatScreen> {
+class _ContactsPanelState extends State<ContactsPanel> {
   final _query = TextEditingController();
   List<UserPublic> _results = [];
   bool _loading = false;
@@ -34,7 +34,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка поиска: $e')),
+          SnackBar(content: Text('Ошибка: $e')),
         );
       }
     } finally {
@@ -44,16 +44,17 @@ class _NewChatScreenState extends State<NewChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: DialogColors.background,
-      appBar: AppBar(
-        backgroundColor: DialogColors.surface,
-        title: const Text('Новый диалог'),
-      ),
-      body: Column(
+    return Container(
+      color: DialogColors.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(24),
+            child: Text('Контакты', style: Theme.of(context).textTheme.titleLarge),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
               children: [
                 Expanded(
@@ -67,18 +68,14 @@ class _NewChatScreenState extends State<NewChatScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _loading ? null : _search,
-                  style: FilledButton.styleFrom(backgroundColor: DialogColors.sage),
-                  child: const Text('Найти'),
-                ),
+                FilledButton(onPressed: _loading ? null : _search, child: const Text('Найти')),
               ],
             ),
           ),
           if (_loading) const LinearProgressIndicator(),
           Expanded(
             child: _results.isEmpty
-                ? const Center(child: Text('Найдите собеседника'))
+                ? const Center(child: Text('Найдите пользователя по логину или имени'))
                 : ListView.builder(
                     itemCount: _results.length,
                     itemBuilder: (context, index) {
@@ -87,7 +84,12 @@ class _NewChatScreenState extends State<NewChatScreen> {
                         leading: GeometricAvatar(label: user.displayName, userId: user.id),
                         title: Text(user.displayName),
                         subtitle: Text('@${user.username}'),
-                        onTap: () => Navigator.pop(context, user),
+                        trailing: OutlinedButton(
+                          onPressed: () {
+                            context.read<MessengerState>().startComposeWith(user);
+                          },
+                          child: const Text('Написать'),
+                        ),
                       );
                     },
                   ),

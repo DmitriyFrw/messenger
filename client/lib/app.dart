@@ -3,7 +3,8 @@ import 'package:provider/provider.dart';
 
 import 'providers/messenger_state.dart';
 import 'screens/auth_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_shell.dart';
+import 'theme/dialog_theme.dart';
 
 class MessengerApp extends StatelessWidget {
   const MessengerApp({super.key, required this.state});
@@ -14,25 +15,18 @@ class MessengerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
       value: state,
-      child: MaterialApp(
-        title: 'Messenger',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5B6EE1)),
-          useMaterial3: true,
-        ),
-        home: const _Root(),
+      child: Consumer<MessengerState>(
+        builder: (context, appState, _) {
+          return MaterialApp(
+            title: 'Диалог',
+            debugShowCheckedModeBanner: false,
+            theme: DialogTheme.light(),
+            darkTheme: DialogTheme.dark(),
+            themeMode: appState.profile.darkTheme ? ThemeMode.dark : ThemeMode.light,
+            home: appState.isLoggedIn ? const MainShell() : const AuthScreen(),
+          );
+        },
       ),
     );
-  }
-}
-
-class _Root extends StatelessWidget {
-  const _Root();
-
-  @override
-  Widget build(BuildContext context) {
-    final loggedIn = context.watch<MessengerState>().isLoggedIn;
-    return loggedIn ? const HomeScreen() : const AuthScreen();
   }
 }

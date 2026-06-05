@@ -5,7 +5,7 @@
 | Часть | Папка | Стек |
 |-------|-------|------|
 | API | `app/` | FastAPI, SQLite, WebSocket |
-| Клиент | `client/` | Flutter, sqflite, Provider |
+| Клиент | `client/` | Flutter — UI «Диалог», sqflite, Provider |
 
 ## Быстрый старт
 
