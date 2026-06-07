@@ -1,96 +1,47 @@
-# Production stack: FastAPI + SQLite (volume) + Nginx reverse proxy.
-#
-# Quick start:
-#   cp .env.prod.example .env
-#   nano .env                          # SECRET_KEY, DOMAIN, LETSENCRYPT_EMAIL
-#   docker compose -f docker-compose.prod.yml up -d --build
-#
-# HTTPS (Let's Encrypt):
-#   ./scripts/init-letsencrypt.sh
-#
-# Client URL: http(s)://YOUR_DOMAIN  (no :8000)
-
-name: messenger
-
 services:
-  api:
-    build: .
-    image: messenger-api:latest
-    container_name: messenger-api
-    expose:
-      - "8000"
+  db:
+    image: postgres:16
     environment:
-      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
-      DATABASE_URL: sqlite:////data/messenger.db
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-10080}
+      POSTGRES_DB: exam_tests
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
-      - messenger_data:/data
+      - db_data:/var/lib/postgresql/data
     restart: unless-stopped
-    networks:
-      - messenger
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs')",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
 
-  nginx:
-    build: ./nginx
-    image: messenger-nginx:latest
-    container_name: messenger-nginx
-    depends_on:
-      api:
-        condition: service_healthy
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/exam_tests
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://example.com}
+      SESSION_COOKIE_SECURE: "true"
+      SESSION_COOKIE_HTTPONLY: "true"
+      SESSION_COOKIE_SAMESITE: lax
+      REDIS_URL: redis://redis:6379/0
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_REQUESTS: "120"
+      RATE_LIMIT_WINDOW_SECONDS: "60"
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+      LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-5}
+      LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      AUTO_CREATE_SCHEMA: "false"
+      RUN_MIGRATIONS: "true"
+      EXPORT_TASK_TTL_SECONDS: ${EXPORT_TASK_TTL_SECONDS:-3600}
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-    environment:
-      DOMAIN: ${DOMAIN:-localhost}
-    volumes:
-      - certbot_www:/var/www/certbot:ro
-      - certbot_certs:/etc/letsencrypt:ro
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      - db
+      - redis
     restart: unless-stopped
-    networks:
-      - messenger
-
-  certbot:
-    profiles: [certbot]
-    image: certbot/certbot:latest
-    container_name: messenger-certbot
-    volumes:
-      - certbot_www:/var/www/certbot
-      - certbot_certs:/etc/letsencrypt
-    networks:
-      - messenger
-    command: >
-      certonly --webroot -w /var/www/certbot
-      -d ${DOMAIN:?Set DOMAIN in .env}
-      --email ${LETSENCRYPT_EMAIL:?Set LETSENCRYPT_EMAIL in .env}
-      --agree-tos --non-interactive --no-eff-email
-
-  certbot-renew:
-    profiles: [certbot-renew]
-    image: certbot/certbot:latest
-    container_name: messenger-certbot-renew
-    volumes:
-      - certbot_www:/var/www/certbot
-      - certbot_certs:/etc/letsencrypt
-    networks:
-      - messenger
-    command: renew --webroot -w /var/www/certbot --quiet
-
-networks:
-  messenger:
-    driver: bridge
 
 volumes:
-  messenger_data:
-  certbot_www:
-  certbot_certs:
+  db_data:

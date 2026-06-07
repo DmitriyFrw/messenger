@@ -1,161 +1,242 @@
-# Messenger
+# Развивайся — экзамен по электробезопасности
 
-Мессенджер с бэкендом (**FastAPI**) и кроссплатформенным клиентом (**Flutter**: iOS, macOS, Android, Windows).
+**Backend:** FastAPI + PostgreSQL (JSON API)  
+**Frontend:** React 18 + TypeScript + Vite
 
-| Часть | Папка | Стек |
-|-------|-------|------|
-| API | `app/` | FastAPI, SQLite, WebSocket |
-| Клиент | `client/` | Flutter — UI «Диалог», sqflite, Provider |
+Архитектура: [ARCHITECTURE.md](ARCHITECTURE.md) · Деплой: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) · **Ubuntu 26.04:** [docs/DEPLOYMENT_UBUNTU_2604.md](docs/DEPLOYMENT_UBUNTU_2604.md) · Бизнес-правила: [docs/BUSINESS_RULES.md](docs/BUSINESS_RULES.md) · API: `/docs` (OpenAPI)
 
-## Быстрый старт
+## Быстрый старт (разработка)
 
-> Все команды ниже — из каталога **`messenger/`** (не из родительской `empty-window/`).
-
-**1. Бэкенд**
+### 1. База и backend
 
 ```bash
-cd messenger
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cd exam_tests
+python3 -m pip install -r requirements.txt
+cp .env.example .env
+# отредактируйте DATABASE_URL и SECRET_KEY
+createdb exam_tests
+
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-**2. Клиент**
+API: http://127.0.0.1:8000/api/health  
+Документация: http://127.0.0.1:8000/docs
+
+### 2. Frontend
 
 ```bash
-cd client && ./setup.sh
-flutter run -d macos   # или android / ios / windows
+cd frontend
+npm install
+npm run dev
 ```
 
-Подробнее о клиенте: [client/README.md](client/README.md)
+UI: http://127.0.0.1:5173 — запросы `/api/*` проксируются на backend.
+
+Сессия: cookie `exam_session`, axios с `withCredentials: true`.
+
+### CSRF
+
+1. При старте UI: `GET /api/auth/csrf` → токен в сессии и в памяти клиента.
+2. Все **POST/PUT/DELETE** отправляют заголовок **`X-CSRF-Token`** (см. `frontend/src/api/csrf.ts`).
+3. Backend (`CSRFMiddleware`) сверяет заголовок с `session["csrf_token"]`.
 
 ## Docker
 
-Команды нужно выполнять **из папки `messenger`** (где лежит `docker-compose.yml`):
+Корень репозитория должен содержать `compose.yaml`. Если Docker Desktop показывает **«no configuration file provided: not found»**, запускайте команды из этого каталога или см. [docs/DOCKER.md](docs/DOCKER.md).
 
 ```bash
-cd messenger
-docker compose up -d --build
+cd exam_tests   # каталог с compose.yaml
+docker compose up -d db redis
+docker compose build backend
+docker compose run --rm backend pytest   # тесты
+docker compose up backend                # API на :8000
 ```
 
-Если открыт корень workspace `empty-window`, можно так:
+- **UI в том же контейнере:** после `docker compose build backend` откройте http://127.0.0.1:8000/ (не только `/docs`).
+- **UI с hot-reload:** `docker compose up -d frontend` → http://127.0.0.1:5173 (см. [docs/DOCKER.md](docs/DOCKER.md)).
+
+`Dockerfile` собирает frontend из корректного `WORKDIR /app/frontend`.
+
+Production-стек:
 
 ```bash
-cd /path/to/empty-window
-docker compose up -d --build
+export SECRET_KEY=$(openssl rand -hex 32)
+./scripts/deploy.sh
+# или: docker compose -f docker-compose.prod.yml up -d
 ```
 
-Или явно указать файл:
+## CI/CD
+
+GitHub Actions (`.github/workflows/ci.yml`):
+
+| Job | Когда | Действие |
+|-----|-------|----------|
+| **lint** | push / PR | `ruff check` |
+| **test** | push / PR | `docker compose up db redis`, pytest + coverage |
+| **frontend** | push / PR | `npm run build` |
+| **deploy** | push в `main` | сборка prod-образа, smoke-deploy, healthcheck |
+
+Опционально: секрет `GHCR_TOKEN` — публикация образа в GitHub Container Registry.
+
+Критические фиксы деплоя:
+- в `deploy` job задан `SECRET_KEY` уже на этапе сборки;
+- `scripts/deploy.sh` — build, up и healthcheck; при ошибке стек остаётся для диагностики (тома не трогаются).
+
+## Миграции (Alembic)
+
+- Локально: `AUTO_CREATE_SCHEMA=true` (схема через `create_all` при старте) **или** `alembic upgrade head`.
+- Production (`docker-compose.prod.yml`): `AUTO_CREATE_SCHEMA=false`, `RUN_MIGRATIONS=true` — entrypoint выполняет `alembic upgrade head` перед uvicorn.
 
 ```bash
-docker compose -f messenger/docker-compose.yml up -d --build
+# применить миграции вручную
+export DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/exam_tests
+./scripts/migrate.sh
+# или: alembic upgrade head
+alembic revision --autogenerate -m "описание"   # новая ревизия
 ```
 
-Только образ (из `messenger/`):
+Начальная ревизия: `alembic/versions/001_initial_schema.py`.
+
+## PDF и шрифты
+
+Кириллица в PDF: DejaVu в `app/static/fonts/` (установка: `./scripts/fetch-dejavu-fonts.sh`). В Docker также ставится пакет `fonts-dejavu-core`.
+
+## Экспорт (async)
+
+Задачи экспорта профиля (PDF/CSV) хранятся в **Redis** при заданном `REDIS_URL`; без Redis — in-memory fallback (только dev/тесты). TTL: `EXPORT_TASK_TTL_SECONDS` (по умолчанию 3600).
+
+## Безопасность
+
+- **Пароли:** bcrypt через passlib (`app/auth_utils.py`), сложность — `BCRYPT_ROUNDS` (по умолчанию 12).
+- **Сессии:** HttpOnly-cookie, настройки `SESSION_COOKIE_*`.
+- **CSRF** на мутирующих запросах.
+- **Защита от брутфорса логина:** in-memory limiter, параметры `LOGIN_RATE_LIMIT_ATTEMPTS` и `LOGIN_RATE_LIMIT_WINDOW_SECONDS`.
+- **Аудит критических действий:** логины, регистрации, запреты редактирования (`SecurityAuditService`).
+- **Экспорт-задачи привязаны к пользователю:** скачивание по `task_id` проверяет владельца; состояние задачи в Redis (см. выше).
+
+## Роли
+
+| Роль | Код | Возможности |
+|------|-----|-------------|
+| Администратор | `admin` | всё |
+| Еж | `ezh` | создание и редактирование тестов |
+| Кот | `kot` | обучение, экзамен, мануалы, профиль, PDF-протокол |
+
+Подробные бизнес-правила (порог сдачи **75%**, состав экзамена, доступ к протоколам): [docs/BUSINESS_RULES.md](docs/BUSINESS_RULES.md).
+
+## Основные API (JSON)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/api/auth/csrf` | CSRF-токен |
+| GET | `/api/auth/me` | Текущий пользователь или `null` |
+| POST | `/api/auth/register` | Регистрация (FormRequest) |
+| POST | `/api/auth/login` | Вход |
+| POST | `/api/auth/logout` | Выход |
+| GET | `/api/dashboard` | Личный кабинет |
+| GET | `/api/tests` | Список тестов |
+| POST | `/api/tests` | Создать тест (admin/ezh) |
+| GET | `/api/tests/{id}` | Редактирование (admin/ezh) |
+| GET | `/api/tests/{id}/training` | Билеты для тренировки |
+| POST | `/api/tests/{id}/training` | Отправить ответы (тренировка) |
+| POST | `/api/tests/{id}/exam/session` | Начать экзамен |
+| GET | `/api/tests/{id}/exam/session` | Статус сессии |
+| GET | `/api/tests/{id}/exam/tickets/{ticket_id}` | Билет (20 мин) |
+| POST | `/api/tests/{id}/exam/tickets/{ticket_id}` | Ответы по билету |
+| POST | `/api/tests/{id}/exam/finish` | Завершить экзамен |
+| GET | `/api/tests/{id}/exam/attempts/{attempt_id}/result` | Результат экзамена (экзаменуемый) |
+| POST | `/api/tests/{id}/exam/attempts/{attempt_id}/protocol/sign` | Подписать протокол (admin/ezh) |
+| GET | `/api/tests/{id}/exam/attempts/{attempt_id}/protocol` | Метаданные подписанного протокола |
+| GET | `/api/tests/{id}/exam/attempts/{attempt_id}/protocol.pdf` | PDF подписанного протокола |
+| POST/PUT/DELETE | `/api/tests/{id}/tickets/...` | CRUD билетов |
+| GET/PUT | `/api/profile` | Профиль Кота |
+| GET | `/api/profile/protocol.pdf` | PDF-протокол |
+| POST | `/api/profile/protocol.pdf/export` | Асинхронный экспорт PDF-протокола |
+| POST | `/api/profile/attempts/export` | Асинхронный экспорт результатов (CSV) |
+| GET | `/api/profile/exports/{task_id}` | Статус/скачивание результата фоновой задачи |
+| GET | `/api/manuals` | Список мануалов (кэш TTL) |
+| GET | `/api/admin/users` | Список пользователей (**только admin**) |
+| PUT | `/api/admin/users/{user_id}/role` | Смена роли (**только admin**) |
+
+### Смена роли через API
+
+1. Войти под пользователем с ролью `admin` (`POST /api/auth/login` + cookie сессии).
+2. Получить CSRF: `GET /api/auth/csrf` → заголовок `X-CSRF-Token` на мутирующих запросах.
+3. Список пользователей: `GET /api/admin/users`.
+4. Смена роли: `PUT /api/admin/users/{user_id}/role` с телом `{"role": "ezh"}` (допустимо: `admin`, `ezh`, `kot`).
+
+Ограничения: нельзя изменить **свою** роль; без роли `admin` — ответ `403`.
+
+Пример (curl, после логина cookie сохранён в `cookies.txt`):
 
 ```bash
-cd messenger
-docker build -t messenger-api:latest .
-docker run -d -p 8000:8000 \
-  -e SECRET_KEY=your-secret-key \
-  -v messenger_data:/data \
-  messenger-api:latest
+CSRF=$(curl -s -b cookies.txt -c cookies.txt http://127.0.0.1:8000/api/auth/csrf | jq -r .csrf_token)
+curl -s -b cookies.txt -c cookies.txt \
+  -X PUT "http://127.0.0.1:8000/api/admin/users/2/role" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: $CSRF" \
+  -d '{"role":"admin"}'
 ```
 
-API: http://localhost:8000/docs
+Первого администратора при пустой БД можно задать SQL: `UPDATE users SET role = 'admin' WHERE username = '...';`
 
-В клиенте укажите адрес сервера `http://127.0.0.1:8000` (или IP хоста с физического устройства).
+## Архитектура backend
 
-Остановка: `docker compose down` (данные SQLite сохраняются в volume `messenger_data`).
+```
+app/
+├── api/              # Тонкие контроллеры (FastAPI routes)
+├── form_requests/    # Валидация входа (аналог Laravel FormRequest)
+├── services/         # Бизнес-логика (в т.ч. подпапки modules/*)
+├── dto/              # Data Transfer Objects
+├── policies/         # Правила доступа (Policies)
+├── repositories/     # Запросы к БД + eager loading (selectinload)
+├── cache.py          # TTL-кэш (cachetools)
+├── auth_utils.py     # bcrypt hash/verify
+├── exceptions.py     # AppError → HTTP
+└── main.py
+```
 
----
+**Оптимизация БД:** репозитории загружают связи (`Test.tickets.questions`, `Attempt.test`) через eager loading; список мануалов кэшируется in-memory (`CACHE_TTL_SECONDS`).  
+**Проверка N+1:** добавлен тест с подсчётом SQL-запросов в `tests/test_services.py`.
 
-# Messenger API
+## Ограничения async-экспортов
 
-Бэкенд мессенджера на **FastAPI** + **SQLite**: регистрация/логин, отображаемое имя, время отправки, статусы сообщений и API для синхронизации истории на устройстве клиента.
+Текущая реализация задач экспорта хранится in-memory в процессе API. Это подходит для dev/single-worker, но в production лучше вынести состояние в Redis/БД и использовать отдельную очередь задач.
 
-## Возможности
-
-| Функция | Описание |
-|--------|----------|
-| Логин | `POST /api/auth/register`, `POST /api/auth/login` → JWT |
-| Отображаемое имя | Поле `display_name` при регистрации, `PATCH /api/users/me` |
-| Время сообщения | `sent_at` (UTC, ISO 8601) |
-| Статус | `not_delivered` → `delivered` → `read` |
-| История на устройстве | Клиент хранит локально; `GET /api/sync?updated_since=...` подтягивает изменения |
-
-## Запуск
+## Тесты
 
 ```bash
-cd messenger
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # при необходимости смените SECRET_KEY
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pip install -r requirements-dev.txt
+pytest
+# или через Docker:
+docker compose run --rm backend pytest
 ```
 
-Документация: http://localhost:8000/docs
+Покрытие, добавленное в рамках рефакторинга:
+- unit-тесты сервисов;
+- unit-тесты политик доступа;
+- интеграционные тесты API (async exports, login brute-force limiter).
 
-## Статусы сообщений
-
-- **`not_delivered`** — получатель офлайн, сообщение ещё не доставлено на его устройство
-- **`delivered`** — получатель онлайн (WebSocket) или сообщение принято клиентом
-- **`read`** — получатель открыл диалог (`POST /api/conversations/{id}/read` или WS `{"action":"read","conversation_id":1}`)
-
-Отправитель получает обновления статуса через WebSocket (`type: message_status`).
-
-## WebSocket
-
-```
-ws://localhost:8000/ws?token=<JWT>
-```
-
-События от сервера:
-
-- `new_message` — новое входящее сообщение
-- `message_status` — смена статуса
-- `pong` — ответ на `{"action":"ping"}`
-
-## Локальное хранение на устройстве
-
-Сервер не заменяет локальную БД клиента — он источник правды для синхронизации между устройствами.
-
-Рекомендуемый поток на клиенте (IndexedDB / SQLite / Room):
-
-1. После логина сохранить `access_token` и профиль (`GET /api/users/me`).
-2. Загрузить диалоги: `GET /api/conversations` → сохранить в локальную таблицу `conversations`.
-3. Для каждого диалога подгрузить историю: `GET /api/conversations/{id}/messages`.
-4. Хранить `last_sync_at` (время последней успешной синхронизации).
-5. Периодически и при старте приложения: `GET /api/sync?updated_since=<last_sync_at>` — upsert сообщений по `id`, обновлять `status` и `status_updated_at`.
-6. Подключить WebSocket для мгновенных сообщений и статусов; дублировать входящие события в локальную БД.
-7. Отправка: `POST /api/messages` → сразу показать в UI с временным id, после ответа заменить на серверный `id`.
-
-Пример синхронизации:
-
-```http
-GET /api/sync?updated_since=2026-05-29T10:00:00Z
-Authorization: Bearer <token>
-```
-
-Ответ содержит все сообщения в ваших диалогах, у которых `status_updated_at` новее указанного времени (включая смену статуса на «прочитано»).
-
-## Примеры API
+## Production (без Docker)
 
 ```bash
-# Регистрация
-curl -s -X POST http://localhost:8000/api/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"secret12","display_name":"Алиса"}'
-
-# Логин
-curl -s -X POST http://localhost:8000/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"secret12"}'
-
-# Отправить сообщение
-curl -s -X POST http://localhost:8000/api/messages \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"recipient_id":2,"text":"Привет!"}'
+cd frontend && npm run build
+cd .. && uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+После `npm run build` FastAPI отдаёт SPA из `frontend/dist/`.
+
+## Структура проекта
+
+```
+exam_tests/
+├── app/
+├── frontend/
+├── tests/
+├── scripts/
+├── compose.yaml
+├── docker-compose.prod.yml
+└── .github/workflows/ci.yml
+```
+
+Старые Jinja-шаблоны (`app/templates/`) больше не используются — UI только в React.
