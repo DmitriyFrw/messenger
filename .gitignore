@@ -1,3 +1,13 @@
+client/.dart_tool/
+client/build/
+client/.flutter-plugins-dependencies
+client/.idea/
+client/**/*.iml
+client/android/.gradle/
+client/ios/Pods/
+client/macos/Flutter/ephemeral/
+client/windows/flutter/ephemeral/
+
 __pycache__/
 *.py[cod]
 .venv/

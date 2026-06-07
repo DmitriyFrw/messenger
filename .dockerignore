@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.db
+.env
+.git/
+.gitignore
+client/
+*.md
+!README.md
+.DS_Store
+.idea/
+*.iml
+agent-transcripts/
